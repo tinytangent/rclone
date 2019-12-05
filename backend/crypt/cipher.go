@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Max-Sum/base32768"
+	"github.com/Max-Sum/fpe/ff1byte"
 	"github.com/pkg/errors"
 	"github.com/rclone/rclone/backend/crypt/pkcs7"
 	"github.com/rclone/rclone/fs"
@@ -107,6 +108,7 @@ type NameEncryptionMode int
 const (
 	NameEncryptionOff NameEncryptionMode = iota
 	NameEncryptionStandard
+	NameEncryptionShort
 	NameEncryptionObfuscated
 )
 
@@ -118,6 +120,8 @@ func NewNameEncryptionMode(s string) (mode NameEncryptionMode, err error) {
 		mode = NameEncryptionOff
 	case "standard":
 		mode = NameEncryptionStandard
+	case "short":
+		mode = NameEncryptionShort
 	case "obfuscate":
 		mode = NameEncryptionObfuscated
 	default:
@@ -133,6 +137,8 @@ func (mode NameEncryptionMode) String() (out string) {
 		out = "off"
 	case NameEncryptionStandard:
 		out = "standard"
+	case NameEncryptionShort:
+		out = "short"
 	case NameEncryptionObfuscated:
 		out = "obfuscate"
 	default:
@@ -225,8 +231,9 @@ func (c *cipher) Key(password, salt string) (err error) {
 	copy(c.dataKey[:], key)
 	copy(c.nameKey[:], key[len(c.dataKey):])
 	copy(c.nameTweak[:], key[len(c.dataKey)+len(c.nameKey):])
-	// Key the name cipher
-	c.block, err = aes.NewCipher(c.nameKey[:])
+	if c.mode == NameEncryptionStandard {
+		c.block, err = aes.NewCipher(c.nameKey[:])
+	}
 	return err
 }
 
@@ -271,8 +278,21 @@ func (c *cipher) encryptSegment(plaintext string) string {
 			plain = utf16[:nDst+1]
 		}
 	}
-	paddedPlaintext := pkcs7.Pad(nameCipherBlockSize, plain)
-	ciphertext := eme.Transform(c.block, c.nameTweak[:], paddedPlaintext, eme.DirectionEncrypt)
+	var ciphertext []byte
+	if c.mode == NameEncryptionStandard {
+		paddedPlaintext := pkcs7.Pad(nameCipherBlockSize, plain)
+		ciphertext = eme.Transform(c.block, c.nameTweak[:], paddedPlaintext, eme.DirectionEncrypt)
+	} else {
+		for len(plain) < 4 {
+			// UTF-8 don't have 0xFF, and UTF-16 would not be shorter than UTF-8 if len < 4
+			plain = append(plain, 0xFF)
+		}
+		ciph, err := ff1byte.NewCipher(nameCipherBlockSize, c.nameKey[:], c.nameTweak[:])
+		ciphertext, err = ciph.Encrypt(plain)
+		if err != nil {
+			panic(err)
+		}
+	}
 	return c.fileNameEnc.EncodeToString(ciphertext)
 }
 
@@ -285,9 +305,6 @@ func (c *cipher) decryptSegment(ciphertext string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(rawCiphertext)%nameCipherBlockSize != 0 {
-		return "", ErrorNotAMultipleOfBlocksize
-	}
 	if len(rawCiphertext) == 0 {
 		// not possible if decodeFilename() working correctly
 		return "", ErrorTooShortAfterDecode
@@ -295,8 +312,23 @@ func (c *cipher) decryptSegment(ciphertext string) (string, error) {
 	if len(rawCiphertext) > 2048 {
 		return "", ErrorTooLongAfterDecode
 	}
-	paddedPlaintext := eme.Transform(c.block, c.nameTweak[:], rawCiphertext, eme.DirectionDecrypt)
-	plain, err := pkcs7.Unpad(nameCipherBlockSize, paddedPlaintext)
+	var plain []byte
+	if c.mode == NameEncryptionStandard {
+		if len(rawCiphertext)%nameCipherBlockSize != 0 {
+			return "", ErrorNotAMultipleOfBlocksize
+		}
+		paddedPlaintext := eme.Transform(c.block, c.nameTweak[:], rawCiphertext, eme.DirectionDecrypt)
+		plain, err = pkcs7.Unpad(nameCipherBlockSize, paddedPlaintext)
+	} else {
+		ciph, _ := ff1byte.NewCipher(nameCipherBlockSize, c.nameKey[:], c.nameTweak[:])
+		plain, err = ciph.Decrypt(rawCiphertext)
+		for len(plain) > 0 {
+			if plain[len(plain)-1] != 0xFF {
+				break
+			}
+			plain = plain[:len(plain)-1]
+		}
+	}
 	if err != nil {
 		return "", err
 	}
@@ -495,9 +527,12 @@ func (c *cipher) encryptFileName(in string) string {
 		if !c.dirNameEncrypt && i != (len(segments)-1) {
 			continue
 		}
-		if c.mode == NameEncryptionStandard {
+		switch c.mode {
+		case NameEncryptionStandard:
+			fallthrough
+		case NameEncryptionShort:
 			segments[i] = c.encryptSegment(segments[i])
-		} else {
+		case NameEncryptionObfuscated:
 			segments[i] = c.obfuscateSegment(segments[i])
 		}
 	}
@@ -530,12 +565,14 @@ func (c *cipher) decryptFileName(in string) (string, error) {
 		if !c.dirNameEncrypt && i != (len(segments)-1) {
 			continue
 		}
-		if c.mode == NameEncryptionStandard {
+		switch c.mode {
+		case NameEncryptionStandard:
+			fallthrough
+		case NameEncryptionShort:
 			segments[i], err = c.decryptSegment(segments[i])
-		} else {
+		case NameEncryptionObfuscated:
 			segments[i], err = c.deobfuscateSegment(segments[i])
 		}
-
 		if err != nil {
 			return "", err
 		}
