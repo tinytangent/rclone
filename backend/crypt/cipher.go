@@ -21,6 +21,8 @@ import (
 	"github.com/rfjakob/eme"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/unicode"
 )
 
 // Constants
@@ -145,6 +147,7 @@ type cipher struct {
 	buffers        sync.Pool // encrypt/decrypt buffers
 	cryptoRand     io.Reader // read crypto random numbers from here
 	dirNameEncrypt bool
+	utf16          encoding.Encoding
 }
 
 // newCipher initialises the cipher.  If salt is "" then it uses a built in salt val
@@ -161,6 +164,7 @@ func newCipher(mode NameEncryptionMode, password, salt string, dirNameEncrypt bo
 	if err != nil {
 		return nil, err
 	}
+	c.utf16 = unicode.UTF16(unicode.LittleEndian, unicode.ExpectBOM)
 	return c, nil
 }
 
@@ -250,7 +254,16 @@ func (c *cipher) encryptSegment(plaintext string) string {
 	if plaintext == "" {
 		return ""
 	}
-	paddedPlaintext := pkcs7.Pad(nameCipherBlockSize, []byte(plaintext))
+	plain := []byte(plaintext)
+	// Try UTF-16LE
+	{
+		utf16 := make([]byte, len(plain)*4)
+		nDst, nSrc, err := c.utf16.NewEncoder().Transform(utf16, plain, true)
+		if nSrc == len(plain) && err == nil && nDst < nSrc {
+			plain = utf16[:nDst]
+		}
+	}
+	paddedPlaintext := pkcs7.Pad(nameCipherBlockSize, plain)
 	ciphertext := eme.Transform(c.block, c.nameTweak[:], paddedPlaintext, eme.DirectionEncrypt)
 	return encodeFileName(ciphertext)
 }
@@ -275,11 +288,19 @@ func (c *cipher) decryptSegment(ciphertext string) (string, error) {
 		return "", ErrorTooLongAfterDecode
 	}
 	paddedPlaintext := eme.Transform(c.block, c.nameTweak[:], rawCiphertext, eme.DirectionDecrypt)
-	plaintext, err := pkcs7.Unpad(nameCipherBlockSize, paddedPlaintext)
+	plain, err := pkcs7.Unpad(nameCipherBlockSize, paddedPlaintext)
 	if err != nil {
 		return "", err
 	}
-	return string(plaintext), err
+	// Try UTF-16
+	{
+		utf8 := make([]byte, len(plain)*4)
+		nDst, _, err := c.utf16.NewDecoder().Transform(utf8, plain, true)
+		if err == nil {
+			plain = utf8[:nDst]
+		}
+	}
+	return string(plain), err
 }
 
 // Simple obfuscation routines
