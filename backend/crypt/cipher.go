@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/lib/version"
 	"github.com/rfjakob/eme"
+	"github.com/Max-Sum/base32768"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
 )
@@ -36,6 +38,7 @@ const (
 	blockDataSize       = 64 * 1024
 	blockSize           = blockHeaderSize + blockDataSize
 	encryptedSuffix     = ".bin" // when file name encryption is off we add this suffix to make sure the cloud provider doesn't process the file
+	encodeHexLower      = "0123456789abcdefghijklmnopqrstuv"
 )
 
 // Errors returned by cipher
@@ -114,22 +117,46 @@ func (mode NameEncryptionMode) String() (out string) {
 	return out
 }
 
-// Cipher defines an encoding and decoding cipher for the crypt backend
+// StrEncoding is encoding methods dealing with strings
+type StrEncoding interface {
+	EncodeToString(src []byte) string
+	DecodeString(s string) ([]byte, error)
+}
+
+// NewNameEncoding creates a NameEncoding from a string
+func NewNameEncoding(s string) (enc StrEncoding, err error) {
+	s = strings.ToLower(s)
+	switch s {
+	case "base32":
+		base32hex := base32.NewEncoding(encodeHexLower)
+		enc = base32hex.WithPadding(base32.NoPadding)
+	case "base64":
+		enc = base64.RawURLEncoding
+	case "base32768":
+		enc = base32768.SafeEncoding
+	default:
+		err = fmt.Errorf("Unknown file name encoding mode %q", s)
+	}
+	return enc, err
+}
+
 type Cipher struct {
 	dataKey        [32]byte                  // Key for secretbox
 	nameKey        [32]byte                  // 16,24 or 32 bytes
 	nameTweak      [nameCipherBlockSize]byte // used to tweak the name crypto
 	block          gocipher.Block
 	mode           NameEncryptionMode
+	fileNameEnc    StrEncoding
 	buffers        sync.Pool // encrypt/decrypt buffers
 	cryptoRand     io.Reader // read crypto random numbers from here
 	dirNameEncrypt bool
 }
 
 // newCipher initialises the cipher.  If salt is "" then it uses a built in salt val
-func newCipher(mode NameEncryptionMode, password, salt string, dirNameEncrypt bool) (*Cipher, error) {
+func newCipher(mode NameEncryptionMode, password, salt string, dirNameEncrypt bool, enc StrEncoding) (*Cipher, error) {
 	c := &Cipher{
 		mode:           mode,
+		fileNameEnc:    enc,
 		cryptoRand:     rand.Reader,
 		dirNameEncrypt: dirNameEncrypt,
 	}
@@ -187,30 +214,6 @@ func (c *Cipher) putBlock(buf []byte) {
 	c.buffers.Put(buf)
 }
 
-// encodeFileName encodes a filename using a modified version of
-// standard base32 as described in RFC4648
-//
-// The standard encoding is modified in two ways
-//  * it becomes lower case (no-one likes upper case filenames!)
-//  * we strip the padding character `=`
-func encodeFileName(in []byte) string {
-	encoded := base32.HexEncoding.EncodeToString(in)
-	encoded = strings.TrimRight(encoded, "=")
-	return strings.ToLower(encoded)
-}
-
-// decodeFileName decodes a filename as encoded by encodeFileName
-func decodeFileName(in string) ([]byte, error) {
-	if strings.HasSuffix(in, "=") {
-		return nil, ErrorBadBase32Encoding
-	}
-	// First figure out how many padding characters to add
-	roundUpToMultipleOf8 := (len(in) + 7) &^ 7
-	equals := roundUpToMultipleOf8 - len(in)
-	in = strings.ToUpper(in) + "========"[:equals]
-	return base32.HexEncoding.DecodeString(in)
-}
-
 // encryptSegment encrypts a path segment
 //
 // This uses EME with AES
@@ -231,7 +234,7 @@ func (c *Cipher) encryptSegment(plaintext string) string {
 	}
 	paddedPlaintext := pkcs7.Pad(nameCipherBlockSize, []byte(plaintext))
 	ciphertext := eme.Transform(c.block, c.nameTweak[:], paddedPlaintext, eme.DirectionEncrypt)
-	return encodeFileName(ciphertext)
+	return c.fileNameEnc.EncodeToString(ciphertext)
 }
 
 // decryptSegment decrypts a path segment
@@ -239,7 +242,7 @@ func (c *Cipher) decryptSegment(ciphertext string) (string, error) {
 	if ciphertext == "" {
 		return "", nil
 	}
-	rawCiphertext, err := decodeFileName(ciphertext)
+	rawCiphertext, err := c.fileNameEnc.DecodeString(ciphertext)
 	if err != nil {
 		return "", err
 	}
