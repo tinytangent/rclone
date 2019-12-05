@@ -15,12 +15,12 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/Max-Sum/base32768"
 	"github.com/pkg/errors"
 	"github.com/rclone/rclone/backend/crypt/pkcs7"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rfjakob/eme"
-	"github.com/Max-Sum/base32768"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
 	"golang.org/x/text/encoding"
@@ -174,7 +174,8 @@ type cipher struct {
 	buffers        sync.Pool // encrypt/decrypt buffers
 	cryptoRand     io.Reader // read crypto random numbers from here
 	dirNameEncrypt bool
-	utf16          encoding.Encoding
+	utf16enc       *encoding.Encoder
+	utf16dec       *encoding.Decoder
 }
 
 // newCipher initialises the cipher.  If salt is "" then it uses a built in salt val
@@ -192,7 +193,9 @@ func newCipher(mode NameEncryptionMode, password, salt string, dirNameEncrypt bo
 	if err != nil {
 		return nil, err
 	}
-	c.utf16 = unicode.UTF16(unicode.LittleEndian, unicode.ExpectBOM)
+	utf16 := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
+	c.utf16enc = utf16.NewEncoder()
+	c.utf16dec = utf16.NewDecoder()
 	return c, nil
 }
 
@@ -259,12 +262,13 @@ func (c *cipher) encryptSegment(plaintext string) string {
 		return ""
 	}
 	plain := []byte(plaintext)
-	// Try UTF-16LE
+	// Try UTF-16BE
 	{
-		utf16 := make([]byte, len(plain)*4)
-		nDst, nSrc, err := c.utf16.NewEncoder().Transform(utf16, plain, true)
-		if nSrc == len(plain) && err == nil && nDst < nSrc {
-			plain = utf16[:nDst]
+		utf16 := make([]byte, len(plain)*2+1)
+		nDst, nSrc, err := c.utf16enc.Transform(utf16[1:], plain, true)
+		if nSrc == len(plain) && err == nil && nDst+1 < nSrc {
+			utf16[0] = 0xFF // UTF-16 Marker
+			plain = utf16[:nDst+1]
 		}
 	}
 	paddedPlaintext := pkcs7.Pad(nameCipherBlockSize, plain)
@@ -297,12 +301,13 @@ func (c *cipher) decryptSegment(ciphertext string) (string, error) {
 		return "", err
 	}
 	// Try UTF-16
-	{
+	if len(plain) > 0 && plain[0] == 0xFF {
 		utf8 := make([]byte, len(plain)*4)
-		nDst, _, err := c.utf16.NewDecoder().Transform(utf8, plain, true)
-		if err == nil {
-			plain = utf8[:nDst]
+		nDst, _, err := c.utf16dec.Transform(utf8, plain[1:], true)
+		if err != nil {
+			return "", err
 		}
+		plain = utf8[:nDst]
 	}
 	return string(plain), err
 }
