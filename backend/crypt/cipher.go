@@ -123,6 +123,24 @@ type StrEncoding interface {
 	DecodeString(s string) ([]byte, error)
 }
 
+type CaseInsensitiveBase32Encoding struct {
+    enc StrEncoding
+}
+
+func NewCaseInsensitiveBase32Encoding (enc StrEncoding) StrEncoding {
+	ret := new(CaseInsensitiveBase32Encoding)
+	ret.enc = enc
+	return ret
+}
+
+func (enc CaseInsensitiveBase32Encoding) EncodeToString(src []byte) string {
+    return enc.enc.EncodeToString(src)
+}
+
+func (enc CaseInsensitiveBase32Encoding) DecodeString(s string) ([]byte, error) {
+    return enc.enc.DecodeString(strings.ToLower(s))
+}
+
 // NewNameEncoding creates a NameEncoding from a string
 func NewNameEncoding(s string) (enc StrEncoding, err error) {
 	s = strings.ToLower(s)
@@ -130,6 +148,7 @@ func NewNameEncoding(s string) (enc StrEncoding, err error) {
 	case "base32":
 		base32hex := base32.NewEncoding(encodeHexLower)
 		enc = base32hex.WithPadding(base32.NoPadding)
+		enc = NewCaseInsensitiveBase32Encoding(enc)
 	case "base64":
 		enc = base64.RawURLEncoding
 	case "base32768":
