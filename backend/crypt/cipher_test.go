@@ -45,7 +45,7 @@ func TestNewNameEncryptionModeString(t *testing.T) {
 	assert.Equal(t, NameEncryptionMode(3).String(), "Unknown mode #3")
 }
 
-func TestEncodeFileName(t *testing.T) {
+func TestEncodeFileNameBase32(t *testing.T) {
 	for _, test := range []struct {
 		in       string
 		expected string
@@ -68,35 +68,40 @@ func TestEncodeFileName(t *testing.T) {
 		{"123456789012345", "64p36d1l6orjge9g64p36d1l"},
 		{"1234567890123456", "64p36d1l6orjge9g64p36d1l6o"},
 	} {
-		actual := encodeFileName([]byte(test.in))
+		enc, err := NewNameEncoding("base32")
+		assert.Equal(t, err, nil, "There should be no error creating name encoder for base32.")
+		actual := enc.EncodeToString([]byte(test.in))
 		assert.Equal(t, actual, test.expected, fmt.Sprintf("in=%q", test.in))
-		recovered, err := decodeFileName(test.expected)
+		recovered, err := enc.DecodeString(test.expected)
 		assert.NoError(t, err)
 		assert.Equal(t, string(recovered), test.in, fmt.Sprintf("reverse=%q", test.expected))
 		in := strings.ToUpper(test.expected)
-		recovered, err = decodeFileName(in)
+		recovered, err = enc.DecodeString(in)
 		assert.NoError(t, err)
 		assert.Equal(t, string(recovered), test.in, fmt.Sprintf("reverse=%q", in))
 	}
 }
 
-func TestDecodeFileName(t *testing.T) {
+func TestDecodeFileNameBase32(t *testing.T) {
+	enc, err := NewNameEncoding("base32")
+	assert.NoError(t, err, "There should be no error creating name encoder for base32.")
 	// We've tested decoding the valid ones above, now concentrate on the invalid ones
 	for _, test := range []struct {
 		in          string
 		expectedErr error
 	}{
-		{"64=", ErrorBadBase32Encoding},
+		{"64=", base32.CorruptInputError(2)},
 		{"!", base32.CorruptInputError(0)},
 		{"hello=hello", base32.CorruptInputError(5)},
 	} {
-		actual, actualErr := decodeFileName(test.in)
+		actual, actualErr := enc.DecodeString(test.in)
 		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
 	}
 }
 
 func TestEncryptSegment(t *testing.T) {
-	c, _ := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 	for _, test := range []struct {
 		in       string
 		expected string
@@ -137,17 +142,18 @@ func TestDecryptSegment(t *testing.T) {
 	for i := range longName {
 		longName[i] = 'a'
 	}
-	c, _ := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 	for _, test := range []struct {
 		in          string
 		expectedErr error
 	}{
-		{"64=", ErrorBadBase32Encoding},
+		{"64=", base32.CorruptInputError(2)},
 		{"!", base32.CorruptInputError(0)},
 		{string(longName), ErrorTooLongAfterDecode},
-		{encodeFileName([]byte("a")), ErrorNotAMultipleOfBlocksize},
-		{encodeFileName([]byte("123456789abcdef")), ErrorNotAMultipleOfBlocksize},
-		{encodeFileName([]byte("123456789abcdef0")), pkcs7.ErrorPaddingTooLong},
+		{enc.EncodeToString([]byte("a")), ErrorNotAMultipleOfBlocksize},
+		{enc.EncodeToString([]byte("123456789abcdef")), ErrorNotAMultipleOfBlocksize},
+		{enc.EncodeToString([]byte("123456789abcdef0")), pkcs7.ErrorPaddingTooLong},
 	} {
 		actual, actualErr := c.decryptSegment(test.in)
 		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
@@ -156,31 +162,32 @@ func TestDecryptSegment(t *testing.T) {
 
 func TestEncryptFileName(t *testing.T) {
 	// First standard mode
-	c, _ := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s", c.EncryptFileName("1"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", c.EncryptFileName("1/12"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", c.EncryptFileName("1/12/123"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123", c.EncryptFileName("1-v2001-02-03-040506-123"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng-v2001-02-03-040506-123", c.EncryptFileName("1/12-v2001-02-03-040506-123"))
 	// Standard mode with directory name encryption off
-	c, _ = newCipher(NameEncryptionStandard, "", "", false)
+	c, _ = newCipher(NameEncryptionStandard, "", "", false, enc)
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s", c.EncryptFileName("1"))
 	assert.Equal(t, "1/l42g6771hnv3an9cgc8cr2n1ng", c.EncryptFileName("1/12"))
 	assert.Equal(t, "1/12/qgm4avr35m5loi1th53ato71v0", c.EncryptFileName("1/12/123"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123", c.EncryptFileName("1-v2001-02-03-040506-123"))
 	assert.Equal(t, "1/l42g6771hnv3an9cgc8cr2n1ng-v2001-02-03-040506-123", c.EncryptFileName("1/12-v2001-02-03-040506-123"))
 	// Now off mode
-	c, _ = newCipher(NameEncryptionOff, "", "", true)
+	c, _ = newCipher(NameEncryptionOff, "", "", true, enc)
 	assert.Equal(t, "1/12/123.bin", c.EncryptFileName("1/12/123"))
 	// Obfuscation mode
-	c, _ = newCipher(NameEncryptionObfuscated, "", "", true)
+	c, _ = newCipher(NameEncryptionObfuscated, "", "", true, enc)
 	assert.Equal(t, "49.6/99.23/150.890/53.!!lipps", c.EncryptFileName("1/12/123/!hello"))
 	assert.Equal(t, "49.6/99.23/150.890/53-v2001-02-03-040506-123.!!lipps", c.EncryptFileName("1/12/123/!hello-v2001-02-03-040506-123"))
 	assert.Equal(t, "49.6/99.23/150.890/162.uryyB-v2001-02-03-040506-123.GKG", c.EncryptFileName("1/12/123/hello-v2001-02-03-040506-123.txt"))
 	assert.Equal(t, "161.\u00e4", c.EncryptFileName("\u00a1"))
 	assert.Equal(t, "160.\u03c2", c.EncryptFileName("\u03a0"))
 	// Obfuscation mode with directory name encryption off
-	c, _ = newCipher(NameEncryptionObfuscated, "", "", false)
+	c, _ = newCipher(NameEncryptionObfuscated, "", "", false, enc)
 	assert.Equal(t, "1/12/123/53.!!lipps", c.EncryptFileName("1/12/123/!hello"))
 	assert.Equal(t, "1/12/123/53-v2001-02-03-040506-123.!!lipps", c.EncryptFileName("1/12/123/!hello-v2001-02-03-040506-123"))
 	assert.Equal(t, "161.\u00e4", c.EncryptFileName("\u00a1"))
@@ -188,6 +195,7 @@ func TestEncryptFileName(t *testing.T) {
 }
 
 func TestDecryptFileName(t *testing.T) {
+	enc, _ := NewNameEncoding("base32")
 	for _, test := range []struct {
 		mode           NameEncryptionMode
 		dirNameEncrypt bool
@@ -215,7 +223,7 @@ func TestDecryptFileName(t *testing.T) {
 		{NameEncryptionObfuscated, false, "1/12/123/53.!!lipps", "1/12/123/!hello", nil},
 		{NameEncryptionObfuscated, false, "1/12/123/53-v2001-02-03-040506-123.!!lipps", "1/12/123/!hello-v2001-02-03-040506-123", nil},
 	} {
-		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt)
+		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, enc)
 		actual, actualErr := c.DecryptFileName(test.in)
 		what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
 		assert.Equal(t, test.expected, actual, what)
@@ -224,6 +232,7 @@ func TestDecryptFileName(t *testing.T) {
 }
 
 func TestEncDecMatches(t *testing.T) {
+	enc, _ := NewNameEncoding("base32")
 	for _, test := range []struct {
 		mode NameEncryptionMode
 		in   string
@@ -233,7 +242,7 @@ func TestEncDecMatches(t *testing.T) {
 		{NameEncryptionObfuscated, "1/2/3/4/!hello\u03a0"},
 		{NameEncryptionObfuscated, "Avatar The Last Airbender"},
 	} {
-		c, _ := newCipher(test.mode, "", "", true)
+		c, _ := newCipher(test.mode, "", "", true, enc)
 		out, err := c.DecryptFileName(c.EncryptFileName(test.in))
 		what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
 		assert.Equal(t, out, test.in, what)
@@ -242,21 +251,23 @@ func TestEncDecMatches(t *testing.T) {
 }
 
 func TestEncryptDirName(t *testing.T) {
+	enc, _ := NewNameEncoding("base32")
 	// First standard mode
-	c, _ := newCipher(NameEncryptionStandard, "", "", true)
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s", c.EncryptDirName("1"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", c.EncryptDirName("1/12"))
 	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", c.EncryptDirName("1/12/123"))
 	// Standard mode with dir name encryption off
-	c, _ = newCipher(NameEncryptionStandard, "", "", false)
+	c, _ = newCipher(NameEncryptionStandard, "", "", false, enc)
 	assert.Equal(t, "1/12", c.EncryptDirName("1/12"))
 	assert.Equal(t, "1/12/123", c.EncryptDirName("1/12/123"))
 	// Now off mode
-	c, _ = newCipher(NameEncryptionOff, "", "", true)
+	c, _ = newCipher(NameEncryptionOff, "", "", true, enc)
 	assert.Equal(t, "1/12/123", c.EncryptDirName("1/12/123"))
 }
 
 func TestDecryptDirName(t *testing.T) {
+	enc, _ := NewNameEncoding("base32")
 	for _, test := range []struct {
 		mode           NameEncryptionMode
 		dirNameEncrypt bool
@@ -275,7 +286,7 @@ func TestDecryptDirName(t *testing.T) {
 		{NameEncryptionOff, true, "1/12/123", "1/12/123", nil},
 		{NameEncryptionOff, true, ".bin", ".bin", nil},
 	} {
-		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt)
+		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, enc)
 		actual, actualErr := c.DecryptDirName(test.in)
 		what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
 		assert.Equal(t, test.expected, actual, what)
@@ -284,7 +295,8 @@ func TestDecryptDirName(t *testing.T) {
 }
 
 func TestEncryptedSize(t *testing.T) {
-	c, _ := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 	for _, test := range []struct {
 		in       int64
 		expected int64
@@ -307,8 +319,9 @@ func TestEncryptedSize(t *testing.T) {
 }
 
 func TestDecryptedSize(t *testing.T) {
+	enc, _ := NewNameEncoding("base32")
 	// Test the errors since we tested the reverse above
-	c, _ := newCipher(NameEncryptionStandard, "", "", true)
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 	for _, test := range []struct {
 		in          int64
 		expectedErr error
@@ -679,7 +692,8 @@ func (z *zeroes) Read(p []byte) (n int, err error) {
 
 // Test encrypt decrypt with different buffer sizes
 func testEncryptDecrypt(t *testing.T, bufSize int, copySize int64) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 	c.cryptoRand = &zeroes{} // zero out the nonce
 	buf := make([]byte, bufSize)
@@ -741,6 +755,7 @@ var (
 )
 
 func TestEncryptData(t *testing.T) {
+	enc, _ := NewNameEncoding("base32")
 	for _, test := range []struct {
 		in       []byte
 		expected []byte
@@ -749,7 +764,7 @@ func TestEncryptData(t *testing.T) {
 		{[]byte{1}, file1},
 		{[]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, file16},
 	} {
-		c, err := newCipher(NameEncryptionStandard, "", "", true)
+		c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 		assert.NoError(t, err)
 		c.cryptoRand = newRandomSource(1e8) // nodge the crypto rand generator
 
@@ -772,7 +787,8 @@ func TestEncryptData(t *testing.T) {
 }
 
 func TestNewEncrypter(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 	c.cryptoRand = newRandomSource(1e8) // nodge the crypto rand generator
 
@@ -794,7 +810,8 @@ func TestNewEncrypter(t *testing.T) {
 // Test the stream returning 0, io.ErrUnexpectedEOF - this used to
 // cause a fatal loop
 func TestNewEncrypterErrUnexpectedEOF(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 
 	in := &readers.ErrorReader{Err: io.ErrUnexpectedEOF}
@@ -823,7 +840,8 @@ func (c *closeDetector) Close() error {
 }
 
 func TestNewDecrypter(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 	c.cryptoRand = newRandomSource(1e8) // nodge the crypto rand generator
 
@@ -866,7 +884,8 @@ func TestNewDecrypter(t *testing.T) {
 
 // Test the stream returning 0, io.ErrUnexpectedEOF
 func TestNewDecrypterErrUnexpectedEOF(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 
 	in2 := &readers.ErrorReader{Err: io.ErrUnexpectedEOF}
@@ -882,7 +901,8 @@ func TestNewDecrypterErrUnexpectedEOF(t *testing.T) {
 }
 
 func TestNewDecrypterSeekLimit(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 	c.cryptoRand = &zeroes{} // nodge the crypto rand generator
 
@@ -1088,7 +1108,8 @@ func TestDecrypterCalculateUnderlying(t *testing.T) {
 }
 
 func TestDecrypterRead(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 
 	// Test truncating the file at each possible point
@@ -1152,7 +1173,8 @@ func TestDecrypterRead(t *testing.T) {
 }
 
 func TestDecrypterClose(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 
 	cd := newCloseDetector(bytes.NewBuffer(file16))
@@ -1190,7 +1212,8 @@ func TestDecrypterClose(t *testing.T) {
 }
 
 func TestPutGetBlock(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 
 	block := c.getBlock()
@@ -1201,7 +1224,8 @@ func TestPutGetBlock(t *testing.T) {
 }
 
 func TestKey(t *testing.T) {
-	c, err := newCipher(NameEncryptionStandard, "", "", true)
+	enc, _ := NewNameEncoding("base32")
+	c, err := newCipher(NameEncryptionStandard, "", "", true, enc)
 	assert.NoError(t, err)
 
 	// Check zero keys OK
