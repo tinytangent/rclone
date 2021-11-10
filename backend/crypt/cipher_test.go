@@ -45,11 +45,31 @@ func TestNewNameEncryptionModeString(t *testing.T) {
 	assert.Equal(t, NameEncryptionMode(3).String(), "Unknown mode #3")
 }
 
+type EncodingTestCase struct {
+	in string
+	expected string
+}
+
+func testEncodeFileName(t *testing.T, encoding string, testCases []EncodingTestCase, caseInsensitive bool) {
+	for _, test := range testCases {
+		enc, err := NewNameEncoding(encoding)
+		assert.NoError(t, err, "There should be no error creating name encoder for base32.")
+		actual := enc.EncodeToString([]byte(test.in))
+		assert.Equal(t, actual, test.expected, fmt.Sprintf("in=%q", test.in))
+		recovered, err := enc.DecodeString(test.expected)
+		assert.NoError(t, err)
+		assert.Equal(t, string(recovered), test.in, fmt.Sprintf("reverse=%q", test.expected))
+		if caseInsensitive {
+			in := strings.ToUpper(test.expected)
+			recovered, err = enc.DecodeString(in)
+			assert.NoError(t, err)
+			assert.Equal(t, string(recovered), test.in, fmt.Sprintf("reverse=%q", in))
+		}
+	}
+}
+
 func TestEncodeFileNameBase32(t *testing.T) {
-	for _, test := range []struct {
-		in       string
-		expected string
-	}{
+	testEncodeFileName(t, "base32", []EncodingTestCase {
 		{"", ""},
 		{"1", "64"},
 		{"12", "64p0"},
@@ -67,19 +87,51 @@ func TestEncodeFileNameBase32(t *testing.T) {
 		{"12345678901234", "64p36d1l6orjge9g64p36d0"},
 		{"123456789012345", "64p36d1l6orjge9g64p36d1l"},
 		{"1234567890123456", "64p36d1l6orjge9g64p36d1l6o"},
-	} {
-		enc, err := NewNameEncoding("base32")
-		assert.Equal(t, err, nil, "There should be no error creating name encoder for base32.")
-		actual := enc.EncodeToString([]byte(test.in))
-		assert.Equal(t, actual, test.expected, fmt.Sprintf("in=%q", test.in))
-		recovered, err := enc.DecodeString(test.expected)
-		assert.NoError(t, err)
-		assert.Equal(t, string(recovered), test.in, fmt.Sprintf("reverse=%q", test.expected))
-		in := strings.ToUpper(test.expected)
-		recovered, err = enc.DecodeString(in)
-		assert.NoError(t, err)
-		assert.Equal(t, string(recovered), test.in, fmt.Sprintf("reverse=%q", in))
-	}
+	}, true)
+}
+
+func TestEncodeFileNameBase64(t *testing.T) {
+	testEncodeFileName(t, "base64", []EncodingTestCase {
+		{"", ""},
+		{"1", "MQ"},
+		{"12", "MTI"},
+		{"123", "MTIz"},
+		{"1234", "MTIzNA"},
+		{"12345", "MTIzNDU"},
+		{"123456", "MTIzNDU2"},
+		{"1234567", "MTIzNDU2Nw"},
+		{"12345678", "MTIzNDU2Nzg"},
+		{"123456789", "MTIzNDU2Nzg5"},
+		{"1234567890", "MTIzNDU2Nzg5MA"},
+		{"12345678901", "MTIzNDU2Nzg5MDE"},
+		{"123456789012", "MTIzNDU2Nzg5MDEy"},
+		{"1234567890123", "MTIzNDU2Nzg5MDEyMw"},
+		{"12345678901234", "MTIzNDU2Nzg5MDEyMzQ"},
+		{"123456789012345", "MTIzNDU2Nzg5MDEyMzQ1"},
+		{"1234567890123456", "MTIzNDU2Nzg5MDEyMzQ1Ng"},
+	}, false)
+}
+
+func TestEncodeFileNameBase65536(t *testing.T) {
+	testEncodeFileName(t, "base32768", []EncodingTestCase {
+		{"",""},
+		{"1","㼿"},
+		{"12","㻙ɟ"},
+		{"123","㻙ⲿ"},
+		{"1234","㻙ⲍƟ"},
+		{"12345","㻙ⲍ⍟"},
+		{"123456","㻙ⲍ⍆ʏ"},
+		{"1234567","㻙ⲍ⍆觟"},
+		{"12345678","㻙ⲍ⍆觓ɧ"},
+		{"123456789","㻙ⲍ⍆觓栯"},
+		{"1234567890","㻙ⲍ⍆觓栩ɣ"},
+		{"12345678901","㻙ⲍ⍆觓栩朧"},
+		{"123456789012","㻙ⲍ⍆觓栩朤ʅ"},
+		{"1234567890123","㻙ⲍ⍆觓栩朤談"},
+		{"12345678901234","㻙ⲍ⍆觓栩朤諆ɔ"},
+		{"123456789012345", "㻙ⲍ⍆觓栩朤諆媕"},
+		{"1234567890123456", "㻙ⲍ⍆觓栩朤諆媕䆿"},
+	}, false)
 }
 
 func TestDecodeFileNameBase32(t *testing.T) {
