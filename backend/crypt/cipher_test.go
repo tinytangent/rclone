@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base32"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Max-Sum/base32768"
 	"github.com/rclone/rclone/backend/crypt/pkcs7"
 	"github.com/rclone/rclone/lib/readers"
 	"github.com/stretchr/testify/assert"
@@ -46,7 +48,7 @@ func TestNewNameEncryptionModeString(t *testing.T) {
 }
 
 type EncodingTestCase struct {
-	in string
+	in       string
 	expected string
 }
 
@@ -69,7 +71,7 @@ func testEncodeFileName(t *testing.T, encoding string, testCases []EncodingTestC
 }
 
 func TestEncodeFileNameBase32(t *testing.T) {
-	testEncodeFileName(t, "base32", []EncodingTestCase {
+	testEncodeFileName(t, "base32", []EncodingTestCase{
 		{"", ""},
 		{"1", "64"},
 		{"12", "64p0"},
@@ -91,7 +93,7 @@ func TestEncodeFileNameBase32(t *testing.T) {
 }
 
 func TestEncodeFileNameBase64(t *testing.T) {
-	testEncodeFileName(t, "base64", []EncodingTestCase {
+	testEncodeFileName(t, "base64", []EncodingTestCase{
 		{"", ""},
 		{"1", "MQ"},
 		{"12", "MTI"},
@@ -112,23 +114,23 @@ func TestEncodeFileNameBase64(t *testing.T) {
 	}, false)
 }
 
-func TestEncodeFileNameBase65536(t *testing.T) {
-	testEncodeFileName(t, "base32768", []EncodingTestCase {
-		{"",""},
-		{"1","㼿"},
-		{"12","㻙ɟ"},
-		{"123","㻙ⲿ"},
-		{"1234","㻙ⲍƟ"},
-		{"12345","㻙ⲍ⍟"},
-		{"123456","㻙ⲍ⍆ʏ"},
-		{"1234567","㻙ⲍ⍆觟"},
-		{"12345678","㻙ⲍ⍆觓ɧ"},
-		{"123456789","㻙ⲍ⍆觓栯"},
-		{"1234567890","㻙ⲍ⍆觓栩ɣ"},
-		{"12345678901","㻙ⲍ⍆觓栩朧"},
-		{"123456789012","㻙ⲍ⍆觓栩朤ʅ"},
-		{"1234567890123","㻙ⲍ⍆觓栩朤談"},
-		{"12345678901234","㻙ⲍ⍆觓栩朤諆ɔ"},
+func TestEncodeFileNameBase32768(t *testing.T) {
+	testEncodeFileName(t, "base32768", []EncodingTestCase{
+		{"", ""},
+		{"1", "㼿"},
+		{"12", "㻙ɟ"},
+		{"123", "㻙ⲿ"},
+		{"1234", "㻙ⲍƟ"},
+		{"12345", "㻙ⲍ⍟"},
+		{"123456", "㻙ⲍ⍆ʏ"},
+		{"1234567", "㻙ⲍ⍆觟"},
+		{"12345678", "㻙ⲍ⍆觓ɧ"},
+		{"123456789", "㻙ⲍ⍆觓栯"},
+		{"1234567890", "㻙ⲍ⍆觓栩ɣ"},
+		{"12345678901", "㻙ⲍ⍆觓栩朧"},
+		{"123456789012", "㻙ⲍ⍆觓栩朤ʅ"},
+		{"1234567890123", "㻙ⲍ⍆觓栩朤談"},
+		{"12345678901234", "㻙ⲍ⍆觓栩朤諆ɔ"},
 		{"123456789012345", "㻙ⲍ⍆觓栩朤諆媕"},
 		{"1234567890123456", "㻙ⲍ⍆觓栩朤諆媕䆿"},
 	}, false)
@@ -145,6 +147,40 @@ func TestDecodeFileNameBase32(t *testing.T) {
 		{"64=", base32.CorruptInputError(2)},
 		{"!", base32.CorruptInputError(0)},
 		{"hello=hello", base32.CorruptInputError(5)},
+	} {
+		actual, actualErr := enc.DecodeString(test.in)
+		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
+	}
+}
+
+func TestDecodeFileNameBase64(t *testing.T) {
+	enc, err := NewNameEncoding("base64")
+	assert.NoError(t, err, "There should be no error creating name encoder for base32.")
+	// We've tested decoding the valid ones above, now concentrate on the invalid ones
+	for _, test := range []struct {
+		in          string
+		expectedErr error
+	}{
+		{"64=", base64.CorruptInputError(2)},
+		{"!", base64.CorruptInputError(0)},
+		{"Hello=Hello", base64.CorruptInputError(5)},
+	} {
+		actual, actualErr := enc.DecodeString(test.in)
+		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
+	}
+}
+
+func TestDecodeFileNameBase32768(t *testing.T) {
+	enc, err := NewNameEncoding("base32768")
+	assert.NoError(t, err, "There should be no error creating name encoder for base32.")
+	// We've tested decoding the valid ones above, now concentrate on the invalid ones
+	for _, test := range []struct {
+		in          string
+		expectedErr error
+	}{
+		{"㼿c", base32768.CorruptInputError(1)},
+		{"!", base32768.CorruptInputError(0)},
+		{"㻙ⲿ=㻙ⲿ", base32768.CorruptInputError(2)},
 	} {
 		actual, actualErr := enc.DecodeString(test.in)
 		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
@@ -170,7 +206,7 @@ func testEncryptSegment(t *testing.T, encoding string, testCases []EncodingTestC
 }
 
 func TestEncryptSegmentBase32(t *testing.T) {
-	testEncryptSegment(t, "base32", []EncodingTestCase {
+	testEncryptSegment(t, "base32", []EncodingTestCase{
 		{"", ""},
 		{"1", "p0e52nreeaj0a5ea7s64m4j72s"},
 		{"12", "l42g6771hnv3an9cgc8cr2n1ng"},
@@ -192,7 +228,7 @@ func TestEncryptSegmentBase32(t *testing.T) {
 }
 
 func TestEncryptSegmentBase64(t *testing.T) {
-	testEncryptSegment(t, "base64", []EncodingTestCase {
+	testEncryptSegment(t, "base64", []EncodingTestCase{
 		{"", ""},
 		{"1", "yBxRX25ypgUVyj8MSxJnFw"},
 		{"12", "qQUDHOGN_jVdLIMQzYrhvA"},
@@ -214,7 +250,7 @@ func TestEncryptSegmentBase64(t *testing.T) {
 }
 
 func TestEncryptSegmentBase32768(t *testing.T) {
-	testEncryptSegment(t, "base32768", []EncodingTestCase {
+	testEncryptSegment(t, "base32768", []EncodingTestCase{
 		{"", ""},
 		{"1", "詮㪗鐮僀伎作㻖㢧⪟"},
 		{"12", "竢朧䉱虃光塬䟛⣡蓟"},
@@ -235,7 +271,7 @@ func TestEncryptSegmentBase32768(t *testing.T) {
 	}, false)
 }
 
-func TestDecryptSegment(t *testing.T) {
+func TestDecryptSegmentBase32(t *testing.T) {
 	// We've tested the forwards above, now concentrate on the errors
 	longName := make([]byte, 3328)
 	for i := range longName {
@@ -259,74 +295,215 @@ func TestDecryptSegment(t *testing.T) {
 	}
 }
 
-func TestEncryptFileName(t *testing.T) {
-	// First standard mode
-	enc, _ := NewNameEncoding("base32")
+func TestDecryptSegmentBase64(t *testing.T) {
+	// We've tested the forwards above, now concentrate on the errors
+	longName := make([]byte, 2816)
+	for i := range longName {
+		longName[i] = 'a'
+	}
+	enc, _ := NewNameEncoding("base64")
 	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s", c.EncryptFileName("1"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", c.EncryptFileName("1/12"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", c.EncryptFileName("1/12/123"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123", c.EncryptFileName("1-v2001-02-03-040506-123"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng-v2001-02-03-040506-123", c.EncryptFileName("1/12-v2001-02-03-040506-123"))
+	for _, test := range []struct {
+		in          string
+		expectedErr error
+	}{
+		{"6H=", base64.CorruptInputError(2)},
+		{"!", base64.CorruptInputError(0)},
+		{string(longName), ErrorTooLongAfterDecode},
+		{enc.EncodeToString([]byte("a")), ErrorNotAMultipleOfBlocksize},
+		{enc.EncodeToString([]byte("123456789abcdef")), ErrorNotAMultipleOfBlocksize},
+		{enc.EncodeToString([]byte("123456789abcdef0")), pkcs7.ErrorPaddingTooLong},
+	} {
+		actual, actualErr := c.decryptSegment(test.in)
+		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
+	}
+}
+
+func TestDecryptSegmentBase32768(t *testing.T) {
+	// We've tested the forwards above, now concentrate on the errors
+	longName := strings.Repeat("怪", 1280)
+	enc, _ := NewNameEncoding("base32768")
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
+	for _, test := range []struct {
+		in          string
+		expectedErr error
+	}{
+		{"怪=", base32768.CorruptInputError(1)},
+		{"!", base32768.CorruptInputError(0)},
+		{longName, ErrorTooLongAfterDecode},
+		{enc.EncodeToString([]byte("a")), ErrorNotAMultipleOfBlocksize},
+		{enc.EncodeToString([]byte("123456789abcdef")), ErrorNotAMultipleOfBlocksize},
+		{enc.EncodeToString([]byte("123456789abcdef0")), pkcs7.ErrorPaddingTooLong},
+	} {
+		actual, actualErr := c.decryptSegment(test.in)
+		assert.Equal(t, test.expectedErr, actualErr, fmt.Sprintf("in=%q got actual=%q, err = %v %T", test.in, actual, actualErr, actualErr))
+	}
+}
+
+func testStandardEncryptFileName(t *testing.T, encoding string, testCasesEncryptDir []EncodingTestCase, testCasesNoEncryptDir []EncodingTestCase) {
+	// First standard mode
+	enc, _ := NewNameEncoding(encoding)
+	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
+	for _, test := range testCasesEncryptDir {
+		assert.Equal(t, test.expected, c.EncryptFileName(test.in))
+	}
 	// Standard mode with directory name encryption off
 	c, _ = newCipher(NameEncryptionStandard, "", "", false, enc)
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s", c.EncryptFileName("1"))
-	assert.Equal(t, "1/l42g6771hnv3an9cgc8cr2n1ng", c.EncryptFileName("1/12"))
-	assert.Equal(t, "1/12/qgm4avr35m5loi1th53ato71v0", c.EncryptFileName("1/12/123"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123", c.EncryptFileName("1-v2001-02-03-040506-123"))
-	assert.Equal(t, "1/l42g6771hnv3an9cgc8cr2n1ng-v2001-02-03-040506-123", c.EncryptFileName("1/12-v2001-02-03-040506-123"))
-	// Now off mode
-	c, _ = newCipher(NameEncryptionOff, "", "", true, enc)
+	for _, test := range testCasesNoEncryptDir {
+		assert.Equal(t, test.expected, c.EncryptFileName(test.in))
+	}
+}
+
+func TestStandardEncryptFileNameBase32(t *testing.T) {
+	testStandardEncryptFileName(t, "base32", []EncodingTestCase{
+		{"1", "p0e52nreeaj0a5ea7s64m4j72s"},
+		{"1/12", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng"},
+		{"1/12/123", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0"},
+		{"1-v2001-02-03-040506-123", "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123"},
+		{"1/12-v2001-02-03-040506-123", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng-v2001-02-03-040506-123"},
+	}, []EncodingTestCase{
+		{"1", "p0e52nreeaj0a5ea7s64m4j72s"},
+		{"1/12", "1/l42g6771hnv3an9cgc8cr2n1ng"},
+		{"1/12/123", "1/12/qgm4avr35m5loi1th53ato71v0"},
+		{"1-v2001-02-03-040506-123", "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123"},
+		{"1/12-v2001-02-03-040506-123", "1/l42g6771hnv3an9cgc8cr2n1ng-v2001-02-03-040506-123"},
+	})
+}
+
+func TestStandardEncryptFileNameBase64(t *testing.T) {
+	testStandardEncryptFileName(t, "base64", []EncodingTestCase{
+		{"1", "yBxRX25ypgUVyj8MSxJnFw"},
+		{"1/12", "yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA"},
+		{"1/12/123", "yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA/1CxFf2Mti1xIPYlGruDh-A"},
+		{"1-v2001-02-03-040506-123", "yBxRX25ypgUVyj8MSxJnFw-v2001-02-03-040506-123"},
+		{"1/12-v2001-02-03-040506-123", "yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA-v2001-02-03-040506-123"},
+	}, []EncodingTestCase{
+		{"1", "yBxRX25ypgUVyj8MSxJnFw"},
+		{"1/12", "1/qQUDHOGN_jVdLIMQzYrhvA"},
+		{"1/12/123", "1/12/1CxFf2Mti1xIPYlGruDh-A"},
+		{"1-v2001-02-03-040506-123", "yBxRX25ypgUVyj8MSxJnFw-v2001-02-03-040506-123"},
+		{"1/12-v2001-02-03-040506-123", "1/qQUDHOGN_jVdLIMQzYrhvA-v2001-02-03-040506-123"},
+	})
+}
+
+func TestStandardEncryptFileNameBase32768(t *testing.T) {
+	testStandardEncryptFileName(t, "base32768", []EncodingTestCase{
+		{"1", "詮㪗鐮僀伎作㻖㢧⪟"},
+		{"1/12", "詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟"},
+		{"1/12/123", "詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟/遶㞟鋅缕袡鲅ⵝ蝁ꌟ"},
+		{"1-v2001-02-03-040506-123", "詮㪗鐮僀伎作㻖㢧⪟-v2001-02-03-040506-123"},
+		{"1/12-v2001-02-03-040506-123", "詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟-v2001-02-03-040506-123"},
+	}, []EncodingTestCase{
+		{"1", "詮㪗鐮僀伎作㻖㢧⪟"},
+		{"1/12", "1/竢朧䉱虃光塬䟛⣡蓟"},
+		{"1/12/123", "1/12/遶㞟鋅缕袡鲅ⵝ蝁ꌟ"},
+		{"1-v2001-02-03-040506-123", "詮㪗鐮僀伎作㻖㢧⪟-v2001-02-03-040506-123"},
+		{"1/12-v2001-02-03-040506-123", "1/竢朧䉱虃光塬䟛⣡蓟-v2001-02-03-040506-123"},
+	})
+}
+
+func TestNonStandardEncryptFileName(t *testing.T) {
+	// Off mode
+	c, _ := newCipher(NameEncryptionOff, "", "", true, nil)
 	assert.Equal(t, "1/12/123.bin", c.EncryptFileName("1/12/123"))
 	// Obfuscation mode
-	c, _ = newCipher(NameEncryptionObfuscated, "", "", true, enc)
+	c, _ = newCipher(NameEncryptionObfuscated, "", "", true, nil)
 	assert.Equal(t, "49.6/99.23/150.890/53.!!lipps", c.EncryptFileName("1/12/123/!hello"))
 	assert.Equal(t, "49.6/99.23/150.890/53-v2001-02-03-040506-123.!!lipps", c.EncryptFileName("1/12/123/!hello-v2001-02-03-040506-123"))
 	assert.Equal(t, "49.6/99.23/150.890/162.uryyB-v2001-02-03-040506-123.GKG", c.EncryptFileName("1/12/123/hello-v2001-02-03-040506-123.txt"))
 	assert.Equal(t, "161.\u00e4", c.EncryptFileName("\u00a1"))
 	assert.Equal(t, "160.\u03c2", c.EncryptFileName("\u03a0"))
 	// Obfuscation mode with directory name encryption off
-	c, _ = newCipher(NameEncryptionObfuscated, "", "", false, enc)
+	c, _ = newCipher(NameEncryptionObfuscated, "", "", false, nil)
 	assert.Equal(t, "1/12/123/53.!!lipps", c.EncryptFileName("1/12/123/!hello"))
 	assert.Equal(t, "1/12/123/53-v2001-02-03-040506-123.!!lipps", c.EncryptFileName("1/12/123/!hello-v2001-02-03-040506-123"))
 	assert.Equal(t, "161.\u00e4", c.EncryptFileName("\u00a1"))
 	assert.Equal(t, "160.\u03c2", c.EncryptFileName("\u03a0"))
 }
 
-func TestDecryptFileName(t *testing.T) {
-	enc, _ := NewNameEncoding("base32")
-	for _, test := range []struct {
-		mode           NameEncryptionMode
-		dirNameEncrypt bool
-		in             string
-		expected       string
-		expectedErr    error
-	}{
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s", "1", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "1/12", nil},
-		{NameEncryptionStandard, true, "p0e52nreeAJ0A5EA7S64M4J72S/L42G6771HNv3an9cgc8cr2n1ng", "1/12", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", "1/12/123", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1/qgm4avr35m5loi1th53ato71v0", "", ErrorNotAMultipleOfBlocksize},
-		{NameEncryptionStandard, false, "1/12/qgm4avr35m5loi1th53ato71v0", "1/12/123", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s-v2001-02-03-040506-123", "1-v2001-02-03-040506-123", nil},
-		{NameEncryptionOff, true, "1/12/123.bin", "1/12/123", nil},
-		{NameEncryptionOff, true, "1/12/123.bix", "", ErrorNotAnEncryptedFile},
-		{NameEncryptionOff, true, ".bin", "", ErrorNotAnEncryptedFile},
-		{NameEncryptionOff, true, "1/12/123-v2001-02-03-040506-123.bin", "1/12/123-v2001-02-03-040506-123", nil},
-		{NameEncryptionOff, true, "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123.bin", "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123", nil},
-		{NameEncryptionOff, true, "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123.txt.bin", "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123.txt", nil},
-		{NameEncryptionObfuscated, true, "!.hello", "hello", nil},
-		{NameEncryptionObfuscated, true, "hello", "", ErrorNotAnEncryptedFile},
-		{NameEncryptionObfuscated, true, "161.\u00e4", "\u00a1", nil},
-		{NameEncryptionObfuscated, true, "160.\u03c2", "\u03a0", nil},
-		{NameEncryptionObfuscated, false, "1/12/123/53.!!lipps", "1/12/123/!hello", nil},
-		{NameEncryptionObfuscated, false, "1/12/123/53-v2001-02-03-040506-123.!!lipps", "1/12/123/!hello-v2001-02-03-040506-123", nil},
-	} {
-		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, enc)
+func testStandardDecryptFileName(t *testing.T, encoding string, testCases []EncodingTestCase, caseInsensitive bool) {
+	enc, _ := NewNameEncoding(encoding)
+	for _, test := range testCases {
+		// Test when dirNameEncrypt=true
+		c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
 		actual, actualErr := c.DecryptFileName(test.in)
-		what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
-		assert.Equal(t, test.expected, actual, what)
-		assert.Equal(t, test.expectedErr, actualErr, what)
+		assert.NoError(t, actualErr)
+		assert.Equal(t, test.expected, actual)
+		if caseInsensitive {
+			c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
+			actual, actualErr := c.DecryptFileName(strings.ToUpper(test.in))
+			assert.NoError(t, actualErr)
+			assert.Equal(t, test.expected, actual)
+		}
+		// Add a character should raise ErrorNotAMultipleOfBlocksize
+		actual, actualErr = c.DecryptFileName(enc.EncodeToString([]byte("1")) + test.in)
+		assert.Equal(t, ErrorNotAMultipleOfBlocksize, actualErr)
+		assert.Equal(t, "", actual)
+		// Test when dirNameEncrypt=false
+		noDirEncryptIn := test.in
+		if strings.LastIndex(test.expected, "/") != -1 {
+			noDirEncryptIn = test.expected[:strings.LastIndex(test.expected, "/")] + test.in[strings.LastIndex(test.in, "/"):]
+		}
+		c, _ = newCipher(NameEncryptionStandard, "", "", false, enc)
+		actual, actualErr = c.DecryptFileName(noDirEncryptIn)
+		assert.NoError(t, actualErr)
+		assert.Equal(t, test.expected, actual)
+	}
+}
+
+func TestStandardDecryptFileNameBase32(t *testing.T) {
+	testStandardDecryptFileName(t, "base32", []EncodingTestCase{
+		{"p0e52nreeaj0a5ea7s64m4j72s", "1"},
+		{"p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "1/12"},
+		{"p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", "1/12/123"},
+	}, true)
+}
+
+func TestStandardDecryptFileNameBase64(t *testing.T) {
+	testStandardDecryptFileName(t, "base64", []EncodingTestCase{
+		{"yBxRX25ypgUVyj8MSxJnFw", "1"},
+		{"yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA", "1/12"},
+		{"yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA/1CxFf2Mti1xIPYlGruDh-A", "1/12/123"},
+	}, false)
+}
+
+func TestStandardDecryptFileNameBase32768(t *testing.T) {
+	testStandardDecryptFileName(t, "base32768", []EncodingTestCase{
+		{"詮㪗鐮僀伎作㻖㢧⪟", "1"},
+		{"詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟", "1/12"},
+		{"詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟/遶㞟鋅缕袡鲅ⵝ蝁ꌟ", "1/12/123"},
+	}, false)
+}
+
+func TestNonStandardDecryptFileName(t *testing.T) {
+	for _, encoding := range []string{"base32", "base64", "base32768"} {
+		enc, _ := NewNameEncoding(encoding)
+		for _, test := range []struct {
+			mode           NameEncryptionMode
+			dirNameEncrypt bool
+			in             string
+			expected       string
+			expectedErr    error
+		}{
+			{NameEncryptionOff, true, "1/12/123.bin", "1/12/123", nil},
+			{NameEncryptionOff, true, "1/12/123.bix", "", ErrorNotAnEncryptedFile},
+			{NameEncryptionOff, true, ".bin", "", ErrorNotAnEncryptedFile},
+			{NameEncryptionOff, true, "1/12/123-v2001-02-03-040506-123.bin", "1/12/123-v2001-02-03-040506-123", nil},
+			{NameEncryptionOff, true, "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123.bin", "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123", nil},
+			{NameEncryptionOff, true, "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123.txt.bin", "1/12/123-v1970-01-01-010101-123-v2001-02-03-040506-123.txt", nil},
+			{NameEncryptionObfuscated, true, "!.hello", "hello", nil},
+			{NameEncryptionObfuscated, true, "hello", "", ErrorNotAnEncryptedFile},
+			{NameEncryptionObfuscated, true, "161.\u00e4", "\u00a1", nil},
+			{NameEncryptionObfuscated, true, "160.\u03c2", "\u03a0", nil},
+			{NameEncryptionObfuscated, false, "1/12/123/53.!!lipps", "1/12/123/!hello", nil},
+			{NameEncryptionObfuscated, false, "1/12/123/53-v2001-02-03-040506-123.!!lipps", "1/12/123/!hello-v2001-02-03-040506-123", nil},
+		} {
+			c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, enc)
+			actual, actualErr := c.DecryptFileName(test.in)
+			what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
+			assert.Equal(t, test.expected, actual, what)
+			assert.Equal(t, test.expectedErr, actualErr, what)
+		}
 	}
 }
 
@@ -351,24 +528,129 @@ func TestEncDecMatches(t *testing.T) {
 	}
 }
 
-func TestEncryptDirName(t *testing.T) {
-	enc, _ := NewNameEncoding("base32")
-	// First standard mode
+func testStandardEncryptDirName(t *testing.T, encoding string, testCases []EncodingTestCase) {
+	enc, _ := NewNameEncoding(encoding)
 	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s", c.EncryptDirName("1"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", c.EncryptDirName("1/12"))
-	assert.Equal(t, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", c.EncryptDirName("1/12/123"))
-	// Standard mode with dir name encryption off
-	c, _ = newCipher(NameEncryptionStandard, "", "", false, enc)
-	assert.Equal(t, "1/12", c.EncryptDirName("1/12"))
-	assert.Equal(t, "1/12/123", c.EncryptDirName("1/12/123"))
-	// Now off mode
-	c, _ = newCipher(NameEncryptionOff, "", "", true, enc)
-	assert.Equal(t, "1/12/123", c.EncryptDirName("1/12/123"))
+	// First standard mode
+	for _, test := range testCases {
+		assert.Equal(t, test.expected, c.EncryptDirName(test.in))
+	}
 }
 
-func TestDecryptDirName(t *testing.T) {
-	enc, _ := NewNameEncoding("base32")
+func TestStandardEncryptDirNameBase32(t *testing.T) {
+	testStandardEncryptDirName(t, "base32", []EncodingTestCase{
+		{"1", "p0e52nreeaj0a5ea7s64m4j72s"},
+		{"1/12", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng"},
+		{"1/12/123", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0"},
+	})
+}
+
+func TestStandardEncryptDirNameBase64(t *testing.T) {
+	testStandardEncryptDirName(t, "base64", []EncodingTestCase{
+		{"1", "yBxRX25ypgUVyj8MSxJnFw"},
+		{"1/12", "yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA"},
+		{"1/12/123", "yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA/1CxFf2Mti1xIPYlGruDh-A"},
+	})
+}
+
+func TestStandardEncryptDirNameBase32768(t *testing.T) {
+	testStandardEncryptDirName(t, "base32768", []EncodingTestCase{
+		{"1", "詮㪗鐮僀伎作㻖㢧⪟"},
+		{"1/12", "詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟"},
+		{"1/12/123", "詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟/遶㞟鋅缕袡鲅ⵝ蝁ꌟ"},
+	})
+}
+
+func TestNonStandardEncryptDirName(t *testing.T) {
+	for _, encoding := range []string{"base32", "base64", "base32768"} {
+		enc, _ := NewNameEncoding(encoding)
+		c, _ := newCipher(NameEncryptionStandard, "", "", false, enc)
+		assert.Equal(t, "1/12", c.EncryptDirName("1/12"))
+		assert.Equal(t, "1/12/123", c.EncryptDirName("1/12/123"))
+		// Now off mode
+		c, _ = newCipher(NameEncryptionOff, "", "", true, enc)
+		assert.Equal(t, "1/12/123", c.EncryptDirName("1/12/123"))
+	}
+}
+
+func testStandardDecryptDirName(t *testing.T, encoding string, testCases []EncodingTestCase, caseInsensitive bool) {
+	enc, _ := NewNameEncoding(encoding)
+	for _, test := range testCases {
+		// Test dirNameEncrypt=true
+		c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
+		actual, actualErr := c.DecryptDirName(test.in)
+		assert.Equal(t, test.expected, actual)
+		assert.NoError(t, actualErr)
+		if caseInsensitive {
+			actual, actualErr := c.DecryptDirName(strings.ToUpper(test.in))
+			assert.Equal(t, actual, test.expected)
+			assert.NoError(t, actualErr)
+		}
+		actual, actualErr = c.DecryptDirName(enc.EncodeToString([]byte("1")) + test.in)
+		assert.Equal(t, "", actual)
+		assert.Equal(t, ErrorNotAMultipleOfBlocksize, actualErr)
+		// Test dirNameEncrypt=false
+		c, _ = newCipher(NameEncryptionStandard, "", "", false, enc)
+		actual, actualErr = c.DecryptDirName(test.in)
+		assert.Equal(t, test.in, actual)
+		assert.NoError(t, actualErr)
+		actual, actualErr = c.DecryptDirName(test.expected)
+		assert.Equal(t, test.expected, actual)
+		assert.NoError(t, actualErr)
+		// Test dirNameEncrypt=false
+	}
+}
+
+/*
+enc, _ := NewNameEncoding(encoding)
+for _, test := range []struct {
+	mode           NameEncryptionMode
+	dirNameEncrypt bool
+	in             string
+	expected       string
+	expectedErr    error
+}{
+	{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s", "1", nil},
+	{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "1/12", nil},
+	{NameEncryptionStandard, true, "p0e52nreeAJ0A5EA7S64M4J72S/L42G6771HNv3an9cgc8cr2n1ng", "1/12", nil},
+	{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", "1/12/123", nil},
+	{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1/qgm4avr35m5loi1th53ato71v0", "", ErrorNotAMultipleOfBlocksize},
+	{NameEncryptionStandard, false, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", nil},
+	{NameEncryptionStandard, false, "1/12/123", "1/12/123", nil},
+} {
+	c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, enc)
+	actual, actualErr := c.DecryptDirName(test.in)
+	what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
+	assert.Equal(t, test.expected, actual, what)
+	assert.Equal(t, test.expectedErr, actualErr, what)
+}
+*/
+
+func TestStandardDecryptDirNameBase32(t *testing.T) {
+	testStandardDecryptDirName(t, "base32", []EncodingTestCase{
+		{"p0e52nreeaj0a5ea7s64m4j72s", "1"},
+		{"p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "1/12"},
+		{"p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", "1/12/123"},
+	}, true)
+}
+
+func TestStandardDecryptDirNameBase64(t *testing.T) {
+	testStandardDecryptDirName(t, "base64", []EncodingTestCase{
+		{"yBxRX25ypgUVyj8MSxJnFw", "1"},
+		{"yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA", "1/12"},
+		{"yBxRX25ypgUVyj8MSxJnFw/qQUDHOGN_jVdLIMQzYrhvA/1CxFf2Mti1xIPYlGruDh-A", "1/12/123"},
+	}, false)
+}
+
+func TestStandardDecryptDirNameBase32768(t *testing.T) {
+	testStandardDecryptDirName(t, "base32768", []EncodingTestCase{
+		{"詮㪗鐮僀伎作㻖㢧⪟", "1"},
+		{"詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟", "1/12"},
+		{"詮㪗鐮僀伎作㻖㢧⪟/竢朧䉱虃光塬䟛⣡蓟/遶㞟鋅缕袡鲅ⵝ蝁ꌟ", "1/12/123"},
+	}, false)
+}
+
+func TestNonStandardDecryptDirName(t *testing.T) {
 	for _, test := range []struct {
 		mode           NameEncryptionMode
 		dirNameEncrypt bool
@@ -376,18 +658,11 @@ func TestDecryptDirName(t *testing.T) {
 		expected       string
 		expectedErr    error
 	}{
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s", "1", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "1/12", nil},
-		{NameEncryptionStandard, true, "p0e52nreeAJ0A5EA7S64M4J72S/L42G6771HNv3an9cgc8cr2n1ng", "1/12", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng/qgm4avr35m5loi1th53ato71v0", "1/12/123", nil},
-		{NameEncryptionStandard, true, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1/qgm4avr35m5loi1th53ato71v0", "", ErrorNotAMultipleOfBlocksize},
-		{NameEncryptionStandard, false, "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", "p0e52nreeaj0a5ea7s64m4j72s/l42g6771hnv3an9cgc8cr2n1ng", nil},
-		{NameEncryptionStandard, false, "1/12/123", "1/12/123", nil},
 		{NameEncryptionOff, true, "1/12/123.bin", "1/12/123.bin", nil},
 		{NameEncryptionOff, true, "1/12/123", "1/12/123", nil},
 		{NameEncryptionOff, true, ".bin", ".bin", nil},
 	} {
-		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, enc)
+		c, _ := newCipher(test.mode, "", "", test.dirNameEncrypt, nil)
 		actual, actualErr := c.DecryptDirName(test.in)
 		what := fmt.Sprintf("Testing %q (mode=%v)", test.in, test.mode)
 		assert.Equal(t, test.expected, actual, what)
