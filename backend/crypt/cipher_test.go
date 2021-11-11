@@ -151,13 +151,26 @@ func TestDecodeFileNameBase32(t *testing.T) {
 	}
 }
 
-func TestEncryptSegment(t *testing.T) {
-	enc, _ := NewNameEncoding("base32")
+func testEncryptSegment(t *testing.T, encoding string, testCases []EncodingTestCase, caseInsensitive bool) {
+	enc, _ := NewNameEncoding(encoding)
 	c, _ := newCipher(NameEncryptionStandard, "", "", true, enc)
-	for _, test := range []struct {
-		in       string
-		expected string
-	}{
+	for _, test := range testCases {
+		actual := c.encryptSegment(test.in)
+		assert.Equal(t, test.expected, actual, fmt.Sprintf("Testing %q", test.in))
+		recovered, err := c.decryptSegment(test.expected)
+		assert.NoError(t, err, fmt.Sprintf("Testing reverse %q", test.expected))
+		assert.Equal(t, test.in, recovered, fmt.Sprintf("Testing reverse %q", test.expected))
+		if caseInsensitive {
+			in := strings.ToUpper(test.expected)
+			recovered, err = c.decryptSegment(in)
+			assert.NoError(t, err, fmt.Sprintf("Testing reverse %q", in))
+			assert.Equal(t, test.in, recovered, fmt.Sprintf("Testing reverse %q", in))
+		}
+	}
+}
+
+func TestEncryptSegmentBase32(t *testing.T) {
+	testEncryptSegment(t, "base32", []EncodingTestCase {
 		{"", ""},
 		{"1", "p0e52nreeaj0a5ea7s64m4j72s"},
 		{"12", "l42g6771hnv3an9cgc8cr2n1ng"},
@@ -175,17 +188,51 @@ func TestEncryptSegment(t *testing.T) {
 		{"12345678901234", "moq0uqdlqrblrc5pa5u5c7hq9g"},
 		{"123456789012345", "eeam3li4rnommi3a762h5n7meg"},
 		{"1234567890123456", "mijbj0frqf6ms7frcr6bd9h0env53jv96pjaaoirk7forcgpt70g"},
-	} {
-		actual := c.encryptSegment(test.in)
-		assert.Equal(t, test.expected, actual, fmt.Sprintf("Testing %q", test.in))
-		recovered, err := c.decryptSegment(test.expected)
-		assert.NoError(t, err, fmt.Sprintf("Testing reverse %q", test.expected))
-		assert.Equal(t, test.in, recovered, fmt.Sprintf("Testing reverse %q", test.expected))
-		in := strings.ToUpper(test.expected)
-		recovered, err = c.decryptSegment(in)
-		assert.NoError(t, err, fmt.Sprintf("Testing reverse %q", in))
-		assert.Equal(t, test.in, recovered, fmt.Sprintf("Testing reverse %q", in))
-	}
+	}, true)
+}
+
+func TestEncryptSegmentBase64(t *testing.T) {
+	testEncryptSegment(t, "base64", []EncodingTestCase {
+		{"", ""},
+		{"1", "yBxRX25ypgUVyj8MSxJnFw"},
+		{"12", "qQUDHOGN_jVdLIMQzYrhvA"},
+		{"123", "1CxFf2Mti1xIPYlGruDh-A"},
+		{"1234", "RL-xOTmsxsG7kuTy2XJUxw"},
+		{"12345", "3FP_GHoeBJdq0yLgaED8IQ"},
+		{"123456", "Xc4T1Gqrs3OVYnrE6dpEWQ"},
+		{"1234567", "uZeEzssOnDWHEOzLqjwpog"},
+		{"12345678", "8noiTP5WkkbEuijsPhOpxQ"},
+		{"123456789", "GeNxgLA0wiaGAKU3U7qL4Q"},
+		{"1234567890", "x1DUhdmqoVWYVBLD3dha-A"},
+		{"12345678901", "iEyP_3BZR6vvv_2WM6NbZw"},
+		{"123456789012", "4OPGvS4SZdjvS568APUaFw"},
+		{"1234567890123", "Y8c5Wr8OhYYUo7fPwdojdg"},
+		{"12345678901234", "tjQPabXW112wuVF8Vh46TA"},
+		{"123456789012345", "c5Vh1kTd8WtIajmFEtz2dA"},
+		{"1234567890123456", "tKa5gfvTzW4d-2bMtqYgdf5Rz-k2ZqViW6HfjbIZ6cE"},
+	}, false)
+}
+
+func TestEncryptSegmentBase32768(t *testing.T) {
+	testEncryptSegment(t, "base32768", []EncodingTestCase {
+		{"", ""},
+		{"1", "詮㪗鐮僀伎作㻖㢧⪟"},
+		{"12", "竢朧䉱虃光塬䟛⣡蓟"},
+		{"123", "遶㞟鋅缕袡鲅ⵝ蝁ꌟ"},
+		{"1234", "䢟銮䵵狌㐜燳谒颴詟"},
+		{"12345", "钉Ꞇ㖃蚩憶狫朰杜㜿"},
+		{"123456", "啇ᚵⵕ憗䋫➫➓肤卟"},
+		{"1234567", "茫螓翁連劘樓㶔抉矟"},
+		{"12345678", "龝☳䘊辄岅較络㧩襟"},
+		{"123456789", "ⲱ苀㱆犂媐Ꮤ锇惫靟"},
+		{"1234567890", "計宁憕偵匢皫╛纺ꌟ"},
+		{"12345678901", "檆䨿鑫㪺藝ꡖ勇䦛婟"},
+		{"123456789012", "雑頏䰂䲝淚哚鹡魺⪟"},
+		{"1234567890123", "塃璶繁躸圅㔟䗃肃懟"},
+		{"12345678901234", "腺ᕚ崚鏕鏥讥鼌䑺䲿"},
+		{"123456789012345", "怪绕滻蕶肣但⠥荖惟"},
+		{"1234567890123456", "肳哀旚挶靏鏻㾭䱠慟㪳ꏆ賊兲铧敻塹魀ʟ"},
+	}, false)
 }
 
 func TestDecryptSegment(t *testing.T) {
