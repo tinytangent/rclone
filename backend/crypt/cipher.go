@@ -7,8 +7,8 @@ import (
 	gocipher "crypto/cipher"
 	"crypto/rand"
 	"encoding/base32"
-	"errors"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -17,12 +17,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Max-Sum/base32768"
 	"github.com/rclone/rclone/backend/crypt/pkcs7"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/lib/version"
 	"github.com/rfjakob/eme"
-	"github.com/Max-Sum/base32768"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
 )
@@ -123,22 +123,33 @@ type StrEncoding interface {
 	DecodeString(s string) ([]byte, error)
 }
 
-type CaseInsensitiveBase32Encoding struct {
-    enc StrEncoding
+// caseInsensitiveBase32Encoding defines a file name encoding
+// using a modified version of standard base32 as described in
+// RFC4648
+//
+// The standard encoding is modified in two ways
+//  * it becomes lower case (no-one likes upper case filenames!)
+//  * we strip the padding character `=`
+type caseInsensitiveBase32Encoding struct{}
+
+// EncodeToString encodes a strign using the modified version of
+// base32 encoding.
+func (caseInsensitiveBase32Encoding) EncodeToString(src []byte) string {
+	encoded := base32.HexEncoding.EncodeToString(src)
+	encoded = strings.TrimRight(encoded, "=")
+	return strings.ToLower(encoded)
 }
 
-func NewCaseInsensitiveBase32Encoding (enc StrEncoding) StrEncoding {
-	ret := new(CaseInsensitiveBase32Encoding)
-	ret.enc = enc
-	return ret
-}
-
-func (enc CaseInsensitiveBase32Encoding) EncodeToString(src []byte) string {
-    return enc.enc.EncodeToString(src)
-}
-
-func (enc CaseInsensitiveBase32Encoding) DecodeString(s string) ([]byte, error) {
-    return enc.enc.DecodeString(strings.ToLower(s))
+// DecodeString decodes a string as encoded by EncodeToString
+func (caseInsensitiveBase32Encoding) DecodeString(s string) ([]byte, error) {
+	if strings.HasSuffix(s, "=") {
+		return nil, ErrorBadBase32Encoding
+	}
+	// First figure out how many padding characters to add
+	roundUpToMultipleOf8 := (len(s) + 7) &^ 7
+	equals := roundUpToMultipleOf8 - len(s)
+	s = strings.ToUpper(s) + "========"[:equals]
+	return base32.HexEncoding.DecodeString(s)
 }
 
 // NewNameEncoding creates a NameEncoding from a string
@@ -146,9 +157,7 @@ func NewNameEncoding(s string) (enc StrEncoding, err error) {
 	s = strings.ToLower(s)
 	switch s {
 	case "base32":
-		base32hex := base32.NewEncoding(encodeHexLower)
-		enc = base32hex.WithPadding(base32.NoPadding)
-		enc = NewCaseInsensitiveBase32Encoding(enc)
+		enc = caseInsensitiveBase32Encoding{}
 	case "base64":
 		enc = base64.RawURLEncoding
 	case "base32768":
@@ -159,6 +168,7 @@ func NewNameEncoding(s string) (enc StrEncoding, err error) {
 	return enc, err
 }
 
+// Cipher defines an encoding and decoding cipher for the crypt backend
 type Cipher struct {
 	dataKey        [32]byte                  // Key for secretbox
 	nameKey        [32]byte                  // 16,24 or 32 bytes

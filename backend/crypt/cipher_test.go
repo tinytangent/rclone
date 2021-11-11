@@ -144,7 +144,7 @@ func TestDecodeFileNameBase32(t *testing.T) {
 		in          string
 		expectedErr error
 	}{
-		{"64=", base32.CorruptInputError(2)},
+		{"64=", ErrorBadBase32Encoding},
 		{"!", base32.CorruptInputError(0)},
 		{"hello=hello", base32.CorruptInputError(5)},
 	} {
@@ -283,7 +283,7 @@ func TestDecryptSegmentBase32(t *testing.T) {
 		in          string
 		expectedErr error
 	}{
-		{"64=", base32.CorruptInputError(2)},
+		{"64=", ErrorBadBase32Encoding},
 		{"!", base32.CorruptInputError(0)},
 		{string(longName), ErrorTooLongAfterDecode},
 		{enc.EncodeToString([]byte("a")), ErrorNotAMultipleOfBlocksize},
