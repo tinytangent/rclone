@@ -123,7 +123,7 @@ names, or for debugging purposes.`,
 This option could help with shortening the encrypted filename. The 
 suitable option would depend on the way your remote count the filename
 length and if it's case sensitve.`,
-			Default:  "base32",
+			Default: "base32",
 			Examples: []fs.OptionExample{
 				{
 					Value: "base32",
