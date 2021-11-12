@@ -38,7 +38,6 @@ const (
 	blockDataSize       = 64 * 1024
 	blockSize           = blockHeaderSize + blockDataSize
 	encryptedSuffix     = ".bin" // when file name encryption is off we add this suffix to make sure the cloud provider doesn't process the file
-	encodeHexLower      = "0123456789abcdefghijklmnopqrstuv"
 )
 
 // Errors returned by cipher
